@@ -91,6 +91,48 @@ app.get("/mangadex/list", async (req, res) => {
 });
 
 // ------------------------------------------------------------
+// ? PROXY MANGADEX CHAPTER LIST (Ambil Daftar Chapter)
+// Endpoint ini mengambil list chapter berdasarkan Manga ID
+// ------------------------------------------------------------
+app.get("/mangadex/manga/:mangaId/chapters", async (req, res) => {
+  const { mangaId } = req.params;
+
+  try {
+    const response = await axios.get(`${MANGADEX_API}/manga/${mangaId}/feed`, {
+      params: {
+        "translatedLanguage[]": ["en", "id"], // Ambil bahasa Inggris & Indo
+        "order[chapter]": "desc", // Urutkan dari chapter terbaru
+        limit: 100, // Batasi 100 chapter
+      },
+      headers: {
+        "User-Agent": "KomiKita-Backend/1.0",
+      },
+    });
+
+    const chapters = response.data.data.map((ch) => ({
+      id: ch.id, // <--- INI CHAPTER ID YANG DIPAKAI UNTUK BACA
+      chapter: ch.attributes.chapter,
+      title: ch.attributes.title,
+      language: ch.attributes.translatedLanguage,
+    }));
+
+    res.status(200).json({
+      error: false,
+      message: "Daftar chapter berhasil diambil",
+      data: chapters,
+    });
+
+  } catch (err) {
+    console.error("Chapter List Error:", err.message);
+    res.status(500).json({ 
+      error: true, 
+      message: "Gagal mengambil daftar chapter",
+      details: err.message 
+    });
+  }
+});
+
+// ------------------------------------------------------------
 // ? PROXY MANGADEX CHAPTER (Ambil Gambar Chapter)
 // Endpoint ini mengambil daftar URL gambar untuk sebuah chapter
 // ------------------------------------------------------------
