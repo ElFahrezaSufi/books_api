@@ -1,165 +1,101 @@
 const express = require("express");
 const cors = require("cors");
 const pool = require("./config/db");
+const axios = require("axios"); // Pastikan sudah install axios: npm install axios
 
 const app = express();
+
 // ? Middleware
 app.use(express.json());
 app.use(cors());
 
+// --- KONFIGURASI MANGADEX ---
+const MANGADEX_API = "https://api.mangadex.org";
+const MANGADEX_COVER = "https://uploads.mangadex.org/covers";
+
 // ! API
 
-// ? Pencarian Buku
-app.get("/books", async (req, res) => {
-  const { title, author, publisher } = req.query;
-
-  let query = "SELECT * FROM books";
-  let conditions = [];
-  let values = [];
-
-  if (title) {
-    conditions.push(`title ILIKE $${values.length + 1}`);
-    values.push(`%${title}%`);
-  }
-  if (author) {
-    conditions.push(`author ILIKE $${values.length + 1}`);
-    values.push(`%${author}%`);
-  }
-  if (publisher) {
-    conditions.push(`publisher ILIKE $${values.length + 1}`);
-    values.push(`%${publisher}%`);
-  }
-
-  if (conditions.length > 0) {
-    query += " WHERE " + conditions.join(" AND ");
-  }
-
+// ------------------------------------------------------------
+// ? PROXY MANGADEX (List Manga Populer)
+// Endpoint ini akan mengambil data dari MangaDex dan meneruskannya ke Frontend
+// ------------------------------------------------------------
+app.get("/mangadex/list", async (req, res) => {
   try {
-    const result = await pool.query(query, values);
+    // 1. Server Node.js request ke MangaDex (Server-to-Server)
+    const response = await axios.get(`${MANGADEX_API}/manga`, {
+      params: {
+        limit: 20,
+        includes: ["cover_art", "author"],
+        "contentRating[]": ["safe", "suggestive"], // Filter konten aman
+        "order[followedCount]": "desc", // Urutkan berdasarkan popularitas
+      },
+      // User-Agent palsu agar tidak ditolak MangaDex
+      headers: {
+        "User-Agent": "KomiKita-Backend/1.0",
+      },
+    });
 
-    if (result.rows.length === 0) {
-      return res.status(200).json({
-        error: false,
-        message: "Tidak ada hasil yang ditemukan",
-        data: [],
-      });
-    }
+    // 2. Mapping Data (Rapikan format sebelum dikirim ke Frontend)
+    const cleanData = response.data.data.map((manga) => {
+      const attributes = manga.attributes;
+      
+      // Ambil Judul (Prioritas Inggris)
+      const title = attributes.title.en || Object.values(attributes.title)[0];
 
+      // Ambil Gambar Cover
+      const coverRel = manga.relationships.find((r) => r.type === "cover_art");
+      const fileName = coverRel?.attributes?.fileName;
+      
+      // Kita kirim URL asli saja. 
+      // Frontend nanti yang akan membungkusnya dengan wsrv.nl agar gambar muncul.
+      let cover = "https://via.placeholder.com/300x450?text=No+Cover";
+      if (fileName) {
+        cover = `${MANGADEX_COVER}/${manga.id}/${fileName}.256.jpg`; // .256.jpg = thumbnail hemat kuota
+      }
+
+      // Ambil Nama Author
+      const authorRel = manga.relationships.find((r) => r.type === "author");
+      const author = authorRel?.attributes?.name || "Unknown";
+
+      // Ambil Tags (Max 3)
+      const tags = attributes.tags
+        .map((tag) => tag.attributes.name.en)
+        .slice(0, 3);
+
+      return {
+        id: manga.id,
+        title: title,
+        cover: cover,
+        author: author,
+        rating: (Math.random() * (9 - 7) + 7).toFixed(1), // Mock rating karena list API tidak ada rating
+        tags: tags,
+        description: attributes.description.en || "Tidak ada deskripsi.",
+      };
+    });
+
+    // 3. Kirim Response Bersih ke Frontend
     res.status(200).json({
       error: false,
-      message: "Data berhasil ditemukan",
-      data: result.rows,
+      message: "Data MangaDex berhasil diambil",
+      data: cleanData,
     });
+
   } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: true, message: "Server Error" });
+    console.error("MangaDex Error:", err.message);
+    // Tangani error dari MangaDex (misal 500, 404, dll)
+    res.status(500).json({ 
+      error: true, 
+      message: "Gagal mengambil data dari MangaDex",
+      details: err.message 
+    });
   }
 });
 
-// ? Menampilkan buku berdasarkan id
-app.get("/books/:id", async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const result = await pool.query("SELECT * FROM books WHERE id = $1", [id]);
-
-    if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: true, message: "Buku tidak ditemukan" });
-    }
-
-    res.status(200).json({
-      error: false,
-      message: "Data berhasil ditemukan",
-      data: result.rows[0],
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: true, message: "Server Error" });
-  }
-});
-
-// ? Menambahkan buku
-app.post("/books", async (req, res) => {
-  const { title, author, publish_date, publisher } = req.body;
-
-  if (!title || !author || !publish_date || !publisher) {
-    return res.status(400).json({
-      error: true,
-      message: "Semua field wajib diisi",
-    });
-  }
-
-  try {
-    const result = await pool.query(
-      `INSERT INTO books (title, author, publish_date, publisher) 
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [title, author, publish_date, publisher]
-    );
-
-    res.status(201).json({
-      error: false,
-      message: "Buku berhasil ditambahkan",
-      data: result.rows[0],
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: true, message: "Server Error" });
-  }
-});
-
-// ? Mengedit buku berdasarkan id
-app.put("/books/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { title, author, publish_date, publisher } = req.body;
-
-    const result = await pool.query(
-      `UPDATE books SET title = $1, author = $2, publish_date = $3, publisher = $4 
-       WHERE id = $5 RETURNING *`,
-      [title, author, publish_date, publisher, id]
-    );
-
-    if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: true, message: "Buku tidak ditemukan" });
-    }
-
-    res.status(200).json({
-      error: false,
-      message: "Buku berhasil diperbarui",
-      data: result.rows[0],
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: true, message: "Server Error" });
-  }
-});
-
-// ? Menghapus buku
-app.delete("/books/:id", async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const result = await pool.query(
-      "DELETE FROM books WHERE id=$1 RETURNING *",
-      [id]
-    );
-    if (result.rows.length === 0) {
-      return res
-        .status(404)
-        .json({ error: true, message: "Buku tidak ditemukan" });
-    }
-    res.status(200).json({
-      error: false,
-      message: "Buku berhasil dihapus",
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: true, message: "Server Error" });
-  }
+// ------------------------------------------------------------
+// ? HEALTH CHECK (Cek status server)
+// ------------------------------------------------------------
+app.get("/", (req, res) => {
+  res.json({ message: "Server KomiKita Backend is Running! 🚀" });
 });
 
 module.exports = app;
