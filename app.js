@@ -185,11 +185,14 @@ app.get("/mangadex/chapter/:chapterId", async (req, res) => {
 // Endpoint ini mengembalikan HTML agar kita bisa melihat gambar langsung
 // Akses di browser: http://localhost:3000/test-read/{chapterId}
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// ? [TESTING] HTML READER VIEWER
+// Endpoint ini mengembalikan HTML agar kita bisa melihat gambar langsung
+// ------------------------------------------------------------
 app.get("/test-read/:chapterId", async (req, res) => {
   const { chapterId } = req.params;
 
   try {
-    // 1. Ambil Data Gambar (Sama seperti endpoint API)
     const response = await axios.get(`${MANGADEX_API}/at-home/server/${chapterId}`, {
         headers: { "User-Agent": "KomiKita-Backend/1.0" }
     });
@@ -198,7 +201,6 @@ app.get("/test-read/:chapterId", async (req, res) => {
     const chapterHash = response.data.chapter.hash;
     const pageFilenames = response.data.chapter.data;
 
-    // 2. Buat String HTML
     let htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -207,8 +209,7 @@ app.get("/test-read/:chapterId", async (req, res) => {
         <style>
           body { background-color: #1a1a1a; color: white; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; }
           h1 { padding: 20px; text-align: center; }
-          .page { max-width: 800px; width: 100%; margin-bottom: 0; display: block; }
-          .error { color: red; padding: 20px; text-align: center; }
+          .page { max-width: 800px; width: 100%; margin-bottom: 10px; display: block; }
         </style>
       </head>
       <body>
@@ -216,16 +217,14 @@ app.get("/test-read/:chapterId", async (req, res) => {
         <div>
     `;
 
-    // 3. Masukkan Gambar ke HTML
     pageFilenames.forEach((filename, index) => {
-      // URL Asli MangaDex
       const originalUrl = `${baseUrl}/data/${chapterHash}/${filename}`;
       
-      // Opsional: Bungkus dengan wsrv.nl jika gambar asli tidak muncul (Hotlink protection)
-      // const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`; 
+      // --- PERBAIKAN DI SINI ---
+      // Kita MENCEGAH gambar kucing muncul dengan membungkus URL pakai wsrv.nl
+      const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`; 
       
-      // Kita coba pakai URL asli dulu biar tau server Mangadex bisa diakses atau nggak
-      htmlContent += `<img class="page" src="${originalUrl}" loading="lazy" alt="Page ${index + 1}" />`;
+      htmlContent += `<img class="page" src="${proxyUrl}" loading="lazy" alt="Page ${index + 1}" />`;
     });
 
     htmlContent += `
@@ -234,11 +233,10 @@ app.get("/test-read/:chapterId", async (req, res) => {
       </html>
     `;
 
-    // 4. Kirim sebagai HTML
     res.send(htmlContent);
 
   } catch (err) {
-    res.status(500).send(`<h1 style="color:red">Error: ${err.message}</h1><p>Pastikan Chapter ID benar.</p>`);
+    res.status(500).send(`<h1 style="color:red">Error: ${err.message}</h1>`);
   }
 });
 
