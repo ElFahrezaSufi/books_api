@@ -181,6 +181,68 @@ app.get("/mangadex/chapter/:chapterId", async (req, res) => {
 });
 
 // ------------------------------------------------------------
+// ? [TESTING] HTML READER VIEWER
+// Endpoint ini mengembalikan HTML agar kita bisa melihat gambar langsung
+// Akses di browser: http://localhost:3000/test-read/{chapterId}
+// ------------------------------------------------------------
+app.get("/test-read/:chapterId", async (req, res) => {
+  const { chapterId } = req.params;
+
+  try {
+    // 1. Ambil Data Gambar (Sama seperti endpoint API)
+    const response = await axios.get(`${MANGADEX_API}/at-home/server/${chapterId}`, {
+        headers: { "User-Agent": "KomiKita-Backend/1.0" }
+    });
+
+    const baseUrl = response.data.baseUrl;
+    const chapterHash = response.data.chapter.hash;
+    const pageFilenames = response.data.chapter.data;
+
+    // 2. Buat String HTML
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Test Reader - Chapter ${chapterId}</title>
+        <style>
+          body { background-color: #1a1a1a; color: white; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; }
+          h1 { padding: 20px; text-align: center; }
+          .page { max-width: 800px; width: 100%; margin-bottom: 0; display: block; }
+          .error { color: red; padding: 20px; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <h1>Mode Tes Baca: Chapter ${chapterId}</h1>
+        <div>
+    `;
+
+    // 3. Masukkan Gambar ke HTML
+    pageFilenames.forEach((filename, index) => {
+      // URL Asli MangaDex
+      const originalUrl = `${baseUrl}/data/${chapterHash}/${filename}`;
+      
+      // Opsional: Bungkus dengan wsrv.nl jika gambar asli tidak muncul (Hotlink protection)
+      // const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`; 
+      
+      // Kita coba pakai URL asli dulu biar tau server Mangadex bisa diakses atau nggak
+      htmlContent += `<img class="page" src="${originalUrl}" loading="lazy" alt="Page ${index + 1}" />`;
+    });
+
+    htmlContent += `
+        </div>
+      </body>
+      </html>
+    `;
+
+    // 4. Kirim sebagai HTML
+    res.send(htmlContent);
+
+  } catch (err) {
+    res.status(500).send(`<h1 style="color:red">Error: ${err.message}</h1><p>Pastikan Chapter ID benar.</p>`);
+  }
+});
+
+// ------------------------------------------------------------
 // ? HEALTH CHECK (Cek status server)
 // ------------------------------------------------------------
 app.get("/", (req, res) => {
