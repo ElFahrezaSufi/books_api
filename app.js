@@ -219,12 +219,17 @@ app.get("/test-read/:chapterId", async (req, res) => {
 
     pageFilenames.forEach((filename, index) => {
       const originalUrl = `${baseUrl}/data/${chapterHash}/${filename}`;
-      
-      // --- PERBAIKAN DI SINI ---
-      // Kita MENCEGAH gambar kucing muncul dengan membungkus URL pakai wsrv.nl
-      const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`; 
-      
-      htmlContent += `<img class="page" src="${proxyUrl}" loading="lazy" alt="Page ${index + 1}" />`;
+
+      // --- PERBAIKAN: Tambahkan Parameter 'n=-1' ---
+      // Parameter n=-1 pada wsrv.nl memaksa proxy untuk tidak mengirimkan referer asli
+      // Ini membuat MangaDex tidak tahu kalau request ini berasal dari website kamu
+      const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(
+        originalUrl
+      )}&n=-1`;
+
+      htmlContent += `<img class="page" src="${proxyUrl}" loading="lazy" alt="Page ${
+        index + 1
+      }" />`;
     });
 
     htmlContent += `
