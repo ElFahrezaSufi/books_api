@@ -38,15 +38,15 @@ app.get("/mangadex/list", async (req, res) => {
     // 2. Mapping Data (Rapikan format sebelum dikirim ke Frontend)
     const cleanData = response.data.data.map((manga) => {
       const attributes = manga.attributes;
-      
+
       // Ambil Judul (Prioritas Inggris)
       const title = attributes.title.en || Object.values(attributes.title)[0];
 
       // Ambil Gambar Cover
       const coverRel = manga.relationships.find((r) => r.type === "cover_art");
       const fileName = coverRel?.attributes?.fileName;
-      
-      // Kita kirim URL asli saja. 
+
+      // Kita kirim URL asli saja.
       // Frontend nanti yang akan membungkusnya dengan wsrv.nl agar gambar muncul.
       let cover = "https://via.placeholder.com/300x450?text=No+Cover";
       if (fileName) {
@@ -79,14 +79,61 @@ app.get("/mangadex/list", async (req, res) => {
       message: "Data MangaDex berhasil diambil",
       data: cleanData,
     });
-
   } catch (err) {
     console.error("MangaDex Error:", err.message);
     // Tangani error dari MangaDex (misal 500, 404, dll)
-    res.status(500).json({ 
-      error: true, 
+    res.status(500).json({
+      error: true,
       message: "Gagal mengambil data dari MangaDex",
-      details: err.message 
+      details: err.message,
+    });
+  }
+});
+
+// ------------------------------------------------------------
+// ? PROXY MANGADEX CHAPTER (Ambil Gambar Chapter)
+// Endpoint ini mengambil daftar URL gambar untuk sebuah chapter
+// ------------------------------------------------------------
+app.get("/mangadex/chapter/:chapterId", async (req, res) => {
+  const { chapterId } = req.params;
+
+  try {
+    // 1. Request ke endpoint MangaDex At-Home Server
+    // Endpoint ini memberikan URL server khusus untuk mengambil gambar chapter tersebut
+    const response = await axios.get(
+      `${MANGADEX_API}/at-home/server/${chapterId}`,
+      {
+        headers: {
+          "User-Agent": "KomiKita-Backend/1.0",
+        },
+      }
+    );
+
+    const baseUrl = response.data.baseUrl;
+    const chapterHash = response.data.chapter.hash;
+    const pageFilenames = response.data.chapter.data; // Array nama file gambar (kualitas asli)
+
+    // Jika ingin hemat bandwidth, bisa pakai dataSaver (kualitas rendah):
+    // const pageFilenames = response.data.chapter.dataSaver;
+
+    // 2. Rakit URL Gambar Lengkap
+    // Format URL MangaDex: {baseUrl}/data/{chapterHash}/{filename}
+    const images = pageFilenames.map((filename) => {
+      return `${baseUrl}/data/${chapterHash}/${filename}`;
+    });
+
+    // 3. Kirim ke Frontend
+    res.status(200).json({
+      error: false,
+      message: "Gambar chapter berhasil diambil",
+      data: images, // Array of strings (URL gambar)
+    });
+  } catch (err) {
+    console.error("MangaDex Chapter Error:", err.message);
+    res.status(500).json({
+      error: true,
+      message: "Gagal mengambil gambar chapter",
+      details: err.message,
     });
   }
 });
