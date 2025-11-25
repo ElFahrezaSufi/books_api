@@ -181,10 +181,41 @@ app.get("/mangadex/chapter/:chapterId", async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// ? [TESTING] HTML READER VIEWER
-// Endpoint ini mengembalikan HTML agar kita bisa melihat gambar langsung
-// Akses di browser: http://localhost:3000/test-read/{chapterId}
+// ? PROXY GAMBAR MANGADEX (Anti-Hotlink Protection)
+// Endpoint ini akan mendownload gambar dari MangaDex dan mengirimkannya ke user
+// Cara pakai: /mangadex/image-proxy?url={URL_GAMBAR_ASLI}
 // ------------------------------------------------------------
+app.get("/mangadex/image-proxy", async (req, res) => {
+  const { url } = req.query;
+
+  if (!url) {
+    return res.status(400).json({ error: true, message: "Parameter url wajib diisi" });
+  }
+
+  try {
+    // Request gambar ke MangaDex seolah-olah kita adalah browser biasa
+    const response = await axios({
+      url: url,
+      method: "GET",
+      responseType: "stream", // Penting: Ambil sebagai stream data
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Referer": "https://mangadex.org/", // Tipu MangaDex biar dikira dari situs resminya
+      },
+    });
+
+    // Set header agar browser tahu ini gambar
+    res.setHeader("Content-Type", response.headers["content-type"]);
+    
+    // Kirim stream gambar ke client
+    response.data.pipe(res);
+
+  } catch (err) {
+    console.error("Image Proxy Error:", err.message);
+    res.status(500).send("Gagal mengambil gambar");
+  }
+});
+
 // ------------------------------------------------------------
 // ? [TESTING] HTML READER VIEWER
 // Endpoint ini mengembalikan HTML agar kita bisa melihat gambar langsung
@@ -217,20 +248,21 @@ app.get("/test-read/:chapterId", async (req, res) => {
         <div>
     `;
 
-    pageFilenames.forEach((filename, index) => {
-      const originalUrl = `${baseUrl}/data/${chapterHash}/${filename}`;
+     pageFilenames.forEach((filename, index) => {
+       const originalUrl = `${baseUrl}/data/${chapterHash}/${filename}`;
 
-      // --- PERBAIKAN: Tambahkan Parameter 'n=-1' ---
-      // Parameter n=-1 pada wsrv.nl memaksa proxy untuk tidak mengirimkan referer asli
-      // Ini membuat MangaDex tidak tahu kalau request ini berasal dari website kamu
-      const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(
-        originalUrl
-      )}&n=-1`;
+       // --- PERBAIKAN: Gunakan Proxy Backend Sendiri ---
+       // Alamat backend saat ini (bisa localhost atau vercel)
+       // Kita gunakan req.protocol dan req.get('host') agar dinamis
+       const backendUrl = `${req.protocol}://${req.get("host")}`;
+       const proxyUrl = `${backendUrl}/mangadex/image-proxy?url=${encodeURIComponent(
+         originalUrl
+       )}`;
 
-      htmlContent += `<img class="page" src="${proxyUrl}" loading="lazy" alt="Page ${
-        index + 1
-      }" />`;
-    });
+       htmlContent += `<img class="page" src="${proxyUrl}" loading="lazy" alt="Page ${
+         index + 1
+       }" />`;
+     });
 
     htmlContent += `
         </div>
